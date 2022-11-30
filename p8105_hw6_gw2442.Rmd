@@ -66,10 +66,10 @@ The cities Dallas, Phoenix, Kansas City, and Tulsa were omitted from the dataset
 homicide_data = 
   homicide_data %>%
   mutate(solved_homicide = ifelse(disposition == "Closed by arrest", 1, 0)) %>%
-  filter(city != "Dallas", 
-         city != "Phoenix", 
-         city != "Kansas City", 
-         city != "Tulsa") %>%
+  filter(city_state != "Dallas_TX", 
+         city_state != "Phoenix_AZ", 
+         city_state != "Kansas City_MO", 
+         city_state != "Tulsa_AL") %>%
   filter(victim_race == "White" | victim_race == "Black") %>%
   mutate(victim_age = as.numeric(victim_age)) %>%
   drop_na(victim_age)
