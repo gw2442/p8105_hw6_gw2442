@@ -75,7 +75,10 @@ homicide_data =
   drop_na(victim_age)
 ```
 
+
 #### Logistic regression on Baltimore, MD
+
+A logistic regression was run for the city of Baltimore with resolved vs unresolved as the outcome and victim age, sex, and race as predictors using the `glm` function. The output was tidied using `broom::tidy`. That output was used to determine the adjusted odds ratio and corresponding 95% confidence interval (test statistics of 1.96) for the city of Baltimore. 
 
 ```{r}
 fit_logistic_baltimore = 
@@ -92,9 +95,14 @@ fit_logistic_baltimore %>%
   filter(term == "victim_sexMale")
 ```
 
+The adjusted odds ratio for solving homicides comparing male victims to female victims is 0.426 with a 95% confidence interval of (0.325, 0.558), keeping all other variables fixed. 
+
+In the city of Baltimore, the odds of solving a homicide with a male victim is 0.426 times the odds of solving a homicide with a female victim, keeping all other variables fixed. 
+
+
 #### Mapping logistic regression for all cities
 
-Create function and map onto nested data frame to obtain OR and CI for each city
+The function `fit_logsitic_homicide` was created. It produces the adjusted odds ratio for sovling homicides comparing male victims to female victims and its corresponding 95% confidence interval. The function was then mapped onto the nested data frame `homicide_data_analysis`. The data frame was then unnested to obtain a final data frame demonstrating each `city_state` and its corresponding OR and CI. 
 
 ```{r}
 fit_logistic_homicide = function(homicide_data) {
@@ -117,7 +125,7 @@ homicide_data_analysis =
 
 #### Plotting OR and CI's
 
-Creating a plot showing the estimated ORs and CIs for each city 
+A plot demonstrating the estimated ORs and CIs for each city was created from the unnested data frame `homicide_data_analysis`. It is organised according to estimated OR.
 
 ```{r}
 homicide_data_analysis %>%
@@ -131,6 +139,9 @@ homicide_data_analysis %>%
         y = "Odds Ratio",
         title = "Odds Ratio for Solving Homicides Comparing Male Victims to Female Victims")
 ```
+
+The plot demonstrates that Albuquerque, NM has the highest odds for solving homicides with male victims compared to female victims. However, it's 95% CI is extremely wide, especially compared to the other cities in the dataset. New York, NY has the lowest odds for solving homicides with male victims compared to female victims. 
+
 
 ## Problem 3
 
@@ -167,9 +178,20 @@ skimr::skim(bw_data)
 
 Variables `babysex`, `frace`, `malform`, and `mrace` were converted to factor variables, as they were all categorical variables. Variable `frace` had no "Unknown" (9) inputs. Variable `mrace` had no "Other" (8) inputs. Therefore, they were omitted when labeling the factor variables. The function `skimr::skim` demonstrates that there are no missing data for any of the variables. 
 
+
 #### Proposed regression model for birthweight
 
-We hypothesise that a baby's birth weight is dependent on the baby's length at birth (cm)t. 
+We hypothesise that a baby's birth weight is dependent on the baby's length at birth (cm). 
+
+```{r}
+bw_data %>%
+  ggplot(aes(x = blength, y = bwt)) + 
+  geom_point(alpha = 0.5)
+```
+
+Based on the plot above, baby's length at birth seems to be positively correlated with the baby's birth weight. 
+
+To test this hypothesis, we run a regression model with birth weight as the outcome and baby's length at birth as a predictor. This model is illustrated in the plot below, with predictions on the x axis and residuals on the y axis. 
 
 ```{r}
 fit = lm(bwt ~ blength, data = bw_data) 
@@ -181,11 +203,7 @@ bw_data =
     modelr::add_predictions(bw_data, fit))
 
 bw_data %>%
-  ggplot(aes(x = blength, y = bwt)) + 
-  geom_point(alpha = 0.5)
-
-bw_data %>%
-  ggplot(aes(x = blength, y = resid)) +
+  ggplot(aes(x = pred, y = resid)) +
   geom_point()
 
 fit %>%
@@ -193,27 +211,70 @@ fit %>%
   knitr::kable()
 ```
 
-Creating and plotting three models to get intuition for goodness of fit
+
+#### Comparing models
+
+The model above was compared with two models: 
+
+* One using length at birth and gestational age as predictors (fit_2)
+
+* One using head circumference, length, sex, and all interactions as predictors (fit_3)
+
+Comparison Models:
 
 ```{r}
-linear_mod = lm(bwt ~ blength, data = bw_data)
-smooth_mod = gam(bwt ~ s(blength), data = bw_data)
+fit_2 = lm (bwt ~ blength + gaweeks, data = bw_data)
 
-bw_data %>%
-  gather_predictions(linear_mod, smooth_mod) %>%
+fit_3 = lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex, data = bw_data)
+```
+
+These three models (`fit`, `fit_2`, and `fit_3`) were compared in terms of the cross-validated prediction error. The `crossv_mc` function was on the `bw_data` dataset to producing training and testing data sets. The candidate models were then fit and its corresponding RMSEs were obtained using `mutate` + `map` & `map2`.
+
+```{r}
+cv_df = 
+  crossv_mc(bw_data, 100)
+
+cv_df = 
+  cv_df %>%
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_df = 
+  cv_df %>%
+  mutate(
+    fit_mod   = map(train, ~lm(bwt ~ blength, data = .x)),
+    fit_2_mod = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    fit_3_mod = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex, data = .x))) %>%
+  mutate(
+    rmse_fit   = map2_dbl(fit_mod, test, ~rmse(model = .x, data = .y)),
+    rmse_fit_2 = map2_dbl(fit_2_mod, test, ~rmse(model = .x, data = .y)),
+    rmse_fit_3 = map2_dbl(fit_3_mod, test, ~rmse(model = .x, data = .y))
+  )
+```
+
+The plot below shows the distribution of RMSE values for each candidate model. 
+
+```{r}
+cv_df %>%
+  select(starts_with("rmse")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_") %>%
   mutate(model = fct_inorder(model)) %>%
-  ggplot(aes(x = blength, y = bwt)) +
-  geom_point(alpha = 0.5) +
-  geom_line(aes(y = pred), color = "red") +
-  facet_grid(~model)
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin() +
+  labs(
+    x = "model",
+    y = "rmse",
+    title = "Distribution of RMSE values for each model"
+    )
+  
 ```
 
-
-
-Comparing my model with one using length at birth and gestational age as predictors
-
-```{r}
-
-```
+RMSE is a metric that ranges from 0 to infinity. Models with a lower value are better able to "fit" the data set. Based on the plot above, the fit_3 model (using head circumference, length, sex, and all interactions) would be most appropriate, as it demonstrates the lowest RMSE value. However, all models demonstrate an extremely high RMSE value, as RMSE values between 0.2 and 0.5 indicate a relatively accurate prediction model. The RMSE in all three of the models above greately exceed these numbers. 
 
 
