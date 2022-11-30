@@ -10,6 +10,8 @@ library(rvest)
 library(broom)
 library(patchwork)
 library(dplyr)
+library(modelr)
+library(mgcv)
 set.seed(1)
 
 knitr::opts_chunk$set(
@@ -74,3 +76,144 @@ homicide_data =
 ```
 
 #### Logistic regression on Baltimore, MD
+
+```{r}
+fit_logistic_baltimore = 
+  homicide_data %>%
+  filter(city == "Baltimore") %>%
+  glm(solved_homicide ~ victim_age + victim_race + victim_sex, data = ., family = binomial()) %>%
+  broom::tidy()
+
+fit_logistic_baltimore %>%
+  mutate(OR = exp(estimate),
+         CI_lower = exp(estimate - 1.96*std.error),
+         CI_upper = exp(estimate + 1.96*std.error)) %>%
+  select(term, OR, CI_lower, CI_upper) %>%
+  filter(term == "victim_sexMale")
+```
+
+#### Mapping logistic regression for all cities
+
+Create function and map onto nested data frame to obtain OR and CI for each city
+
+```{r}
+fit_logistic_homicide = function(homicide_data) {
+  glm(solved_homicide ~ victim_age + victim_race + victim_sex, data = homicide_data, family = binomial()) %>%
+    broom::tidy() %>%
+    mutate(OR = exp(estimate),
+           CI_lower = exp(estimate - 1.96*std.error),
+           CI_upper = exp(estimate + 1.96*std.error)) %>%
+    select(term, OR, CI_lower, CI_upper) %>%
+    filter(term == "victim_sexMale")
+}
+
+homicide_data_analysis = 
+  homicide_data %>%
+  select(city_state, everything()) %>%
+  nest(data = uid:solved_homicide) %>%
+  mutate(regression_result = purrr::map(.x = data, ~fit_logistic_homicide(.x))) %>%
+  unnest(cols = regression_result)
+```
+
+#### Plotting OR and CI's
+
+Creating a plot showing the estimated ORs and CIs for each city 
+
+```{r}
+homicide_data_analysis %>%
+  mutate(city_state = fct_reorder(city_state, OR)) %>%
+  ggplot(aes(x = city_state, y = OR)) + 
+  geom_errorbar(aes(ymin= CI_lower, ymax= CI_upper)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(
+        x = "Cities",
+        y = "Odds Ratio",
+        title = "Odds Ratio for Solving Homicides Comparing Male Victims to Female Victims")
+```
+
+## Problem 3
+
+#### Loading and cleaning data for regression analysis
+
+```{r}
+bw_data = read_csv(file = "./data/birthweight.csv") %>%
+  janitor::clean_names()
+skimr::skim(bw_data)
+
+bw_data %>%
+  distinct(babysex) 
+
+bw_data %>%
+  distinct(frace)
+
+bw_data %>%
+  distinct(malform)
+
+bw_data %>%
+  distinct(mrace)
+
+bw_data =
+  bw_data %>%
+  mutate(
+    babysex = factor(babysex, labels = c("male", "female")),
+    frace = factor(frace, labels = c("white", "black", "asian", "puerto rican", "other")),
+    malform = factor(malform, labels = c("absent", "present")),
+    mrace = factor(mrace, labels = c("white", "black", "asian", "puerto rican")), 
+  )
+
+skimr::skim(bw_data)
+```
+
+Variables `babysex`, `frace`, `malform`, and `mrace` were converted to factor variables, as they were all categorical variables. Variable `frace` had no "Unknown" (9) inputs. Variable `mrace` had no "Other" (8) inputs. Therefore, they were omitted when labeling the factor variables. The function `skimr::skim` demonstrates that there are no missing data for any of the variables. 
+
+#### Proposed regression model for birthweight
+
+We hypothesise that a baby's birth weight is dependent on the baby's length at birth (cm)t. 
+
+```{r}
+fit = lm(bwt ~ blength, data = bw_data) 
+
+bw_data = 
+  bw_data %>%
+  mutate(
+    modelr::add_residuals(bw_data, fit),
+    modelr::add_predictions(bw_data, fit))
+
+bw_data %>%
+  ggplot(aes(x = blength, y = bwt)) + 
+  geom_point(alpha = 0.5)
+
+bw_data %>%
+  ggplot(aes(x = blength, y = resid)) +
+  geom_point()
+
+fit %>%
+  broom::tidy() %>%
+  knitr::kable()
+```
+
+Creating and plotting three models to get intuition for goodness of fit
+
+```{r}
+linear_mod = lm(bwt ~ blength, data = bw_data)
+smooth_mod = gam(bwt ~ s(blength), data = bw_data)
+
+bw_data %>%
+  gather_predictions(linear_mod, smooth_mod) %>%
+  mutate(model = fct_inorder(model)) %>%
+  ggplot(aes(x = blength, y = bwt)) +
+  geom_point(alpha = 0.5) +
+  geom_line(aes(y = pred), color = "red") +
+  facet_grid(~model)
+```
+
+
+
+Comparing my model with one using length at birth and gestational age as predictors
+
+```{r}
+
+```
+
+
